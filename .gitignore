@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# 模型缓存
+models/
+*.gguf
+*.bin
+*.safetensors
+
+# HuggingFace缓存
+.cache/
+
+# 环境与配置
+.env
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+Thumbs.db
+.DS_Store
+
+# 项目产物
+benchmark_result.json
+test_check.py
+__pycache__/
+
+# 敏感信息
+config_local.py
+*.key

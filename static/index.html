@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>联想式GraphRAG - 知识图谱增强问答</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #0a0a14; color: #e0e0e0; }
+        .app { display: flex; height: 100vh; }
+        .left { flex: 1.1; display: flex; flex-direction: column; border-right: 1px solid #2a2a3a; min-width: 0; }
+        .right { flex: 0.9; display: flex; flex-direction: column; }
+
+        .header { padding: 12px 20px; border-bottom: 1px solid #2a2a3a; display: flex; align-items: center; justify-content: space-between; }
+        .header .title { font-size: 16px; font-weight: 600; }
+        .header .title span { color: #7c6aef; }
+        .header .badges { display: flex; gap: 6px; align-items: center; }
+        .badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 12px; font-size: 11px; cursor: pointer; transition: all 0.2s; }
+        .badge:hover { filter: brightness(1.2); }
+        .badge-llm-off { background: #3a2a1a; color: #ffa500; border: 1px solid #5a4a2a; }
+        .badge-llm-on { background: #1a2a3a; color: #00bfff; border: 1px solid #2a4a5a; }
+        .badge-emb-on { background: #1a3a2a; color: #4aef9a; border: 1px solid #2a5a3a; }
+        .badge-emb-off { background: #3a2a1a; color: #ffa500; border: 1px solid #5a4a2a; }
+
+        .stats-bar { padding: 6px 20px; font-size: 11px; color: #666; border-bottom: 1px solid #1a1a2a; display: flex; gap: 16px; flex-wrap: wrap; }
+        .stats-bar .highlight { color: #7c6aef; }
+
+        .settings-panel { display: none; padding: 12px 20px; border-bottom: 1px solid #2a2a3a; background: #0f0f1a; }
+        .settings-panel.show { display: block; }
+        .settings-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+        .settings-row label { font-size: 12px; color: #888; min-width: 70px; }
+        .settings-row input { flex: 1; padding: 6px 12px; border: 1px solid #3a3a4a; border-radius: 6px; background: #1a1a2e; color: #e0e0e0; font-size: 12px; outline: none; }
+        .settings-row input:focus { border-color: #7c6aef; }
+        .settings-row button { padding: 6px 14px; background: #7c6aef; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 12px; }
+        .settings-row button:hover { background: #6b5ad8; }
+        .settings-row button.secondary { background: #2a2a3a; }
+        .settings-row button.secondary:hover { background: #3a3a4a; }
+
+        .chat-area { flex: 1; overflow-y: auto; padding: 16px; }
+        .input-area { padding: 10px 16px; border-top: 1px solid #2a2a3a; display: flex; gap: 8px; }
+        .input-area input { flex: 1; padding: 10px 16px; border: 1px solid #3a3a4a; border-radius: 8px; background: #1a1a2e; color: #e0e0e0; font-size: 14px; outline: none; }
+        .input-area input:focus { border-color: #7c6aef; }
+        .input-area button { padding: 10px 20px; background: #7c6aef; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 500; }
+        .input-area button:hover { background: #6b5ad8; }
+
+        .msg { margin-bottom: 14px; padding: 12px 16px; border-radius: 12px; max-width: 92%; line-height: 1.7; font-size: 14px; }
+        .msg.user { background: #1e1e3a; margin-left: auto; border: 1px solid #3a3a5a; }
+        .msg.agent { background: #111a11; border: 1px solid #1a3a1a; }
+        .msg .meta { font-size: 11px; color: #666; margin-top: 8px; display: flex; gap: 12px; flex-wrap: wrap; }
+        .msg .seeds { color: #7c6aef; }
+        .msg .related { color: #4a9aef; }
+
+        .topic-tags { margin-top: 10px; padding-top: 8px; border-top: 1px solid #1a2a1a; }
+        .topic-tags .label { font-size: 11px; color: #666; margin-bottom: 4px; }
+        .topic-tag { cursor: pointer; display: inline-flex; align-items: center; gap: 4px; margin: 3px; padding: 4px 12px; border-radius: 8px; font-size: 12px; transition: all 0.15s; }
+        .topic-tag:hover { filter: brightness(1.3); transform: translateY(-1px); }
+        .topic-tag.cross { background: #2a1a3a; border: 1px solid #7c6aef; color: #b8a0ff; }
+        .topic-tag.same { background: #1a2a3a; border: 1px solid #4a9aef; color: #8ac0ff; }
+
+        .graph-canvas { flex: 1; position: relative; }
+        canvas { width: 100%; height: 100%; }
+        .graph-legend { position: absolute; bottom: 12px; left: 12px; display: flex; gap: 10px; flex-wrap: wrap; }
+        .legend-item { display: flex; align-items: center; gap: 4px; font-size: 11px; color: #888; }
+        .legend-dot { width: 8px; height: 8px; border-radius: 50%; }
+
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #3a3a4a; border-radius: 3px; }
+    </style>
+</head>
+<body>
+    <div class="app">
+        <div class="left">
+            <div class="header">
+                <div class="title">🧠 联想式<span>GraphRAG</span></div>
+                <div class="badges">
+                    <span id="llmBadge" class="badge badge-llm-off" onclick="toggleSettings()" title="点击设置">⚪ 离线</span>
+                    <span id="embBadge" class="badge badge-emb-off" title="匹配模式">🔑 关键词</span>
+                    <span class="badge" style="background:#2a2a3a;border:1px solid #3a3a4a;cursor:pointer" onclick="toggleSettings()">⚙️</span>
+                </div>
+            </div>
+            <div class="stats-bar" id="statsBar">加载中...</div>
+            <div class="settings-panel" id="settingsPanel">
+                <div class="settings-row">
+                    <label>DeepSeek Key</label>
+                    <input id="apiKeyInput" type="password" placeholder="sk-... 填入后点击设置">
+                    <button onclick="setApiKey()">设置</button>
+                </div>
+                <div class="settings-row">
+                    <label>LLM模式</label>
+                    <button class="secondary" onclick="switchMode('offline')">离线</button>
+                    <button class="secondary" onclick="switchMode('online')">在线</button>
+                    <span style="font-size:11px;color:#666;margin-left:8px" id="modeHint"></span>
+                </div>
+            </div>
+            <div class="chat-area" id="chatArea"></div>
+            <div class="input-area">
+                <input id="questionInput" placeholder="输入问题，如：C++和图灵机有什么关系？" onkeydown="if(event.key==='Enter')ask()">
+                <button onclick="ask()">发送</button>
+            </div>
+        </div>
+        <div class="right">
+            <div class="header">
+                <div class="title">📊 知识图谱</div>
+            </div>
+            <div class="graph-canvas">
+                <canvas id="graphCanvas"></canvas>
+                <div class="graph-legend" id="graphLegend"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    const chatArea = document.getElementById('chatArea');
+    const questionInput = document.getElementById('questionInput');
+    const statsBar = document.getElementById('statsBar');
+    const settingsPanel = document.getElementById('settingsPanel');
+    let graphData = { nodes: [], edges: [] };
+
+    const domainColors = {
+        'AI': '#7c6aef', '安全': '#ef6a6a', '编程': '#4a9aef',
+        '跨域': '#4aef9a', '数据': '#efc94a', '系统': '#ef8a4a'
+    };
+    const domainLabels = {
+        'AI': 'AI/ML', '安全': '安全', '编程': '编程',
+        '跨域': '跨域理论', '数据': '数据工程', '系统': '系统'
+    };
+
+    async function init() {
+        await loadGraph();
+        await updateStatus();
+    }
+
+    async function loadGraph() {
+        const [nodesRes, edgesRes, statsRes] = await Promise.all([
+            fetch('/api/graph/nodes'), fetch('/api/graph/edges'), fetch('/api/graph/stats')
+        ]);
+        graphData.nodes = (await nodesRes.json()).nodes;
+        graphData.edges = (await edgesRes.json()).edges;
+        const stats = await statsRes.json();
+
+        const domainParts = Object.entries(stats.domains).map(([d, c]) =>
+            `<span style="color:${domainColors[d]||'#888'}">${domainLabels[d]||d}:${c}</span>`
+        );
+        statsBar.innerHTML = `节点: <span class="highlight">${stats.nodes}</span> | 边: <span class="highlight">${stats.edges}</span> | 跨域边: <span class="highlight">${stats.cross_domain_edges}</span> | ${domainParts.join(' ')}`;
+
+        const legend = document.getElementById('graphLegend');
+        legend.innerHTML = Object.entries(domainColors).map(([d, c]) =>
+            `<div class="legend-item"><div class="legend-dot" style="background:${c}"></div>${domainLabels[d]||d}</div>`
+        ).join('');
+
+        drawGraph();
+    }
+
+    async function updateStatus() {
+        try {
+            const res = await fetch('/api/status');
+            const s = await res.json();
+            const llmBadge = document.getElementById('llmBadge');
+            const embBadge = document.getElementById('embBadge');
+
+            if (s.llm_mode === 'online') {
+                llmBadge.className = 'badge badge-llm-on';
+                llmBadge.innerHTML = '🔵 在线';
+            } else {
+                llmBadge.className = 'badge badge-llm-off';
+                llmBadge.innerHTML = '⚪ 离线';
+            }
+
+            if (s.embedding_available) {
+                embBadge.className = 'badge badge-emb-on';
+                embBadge.innerHTML = '🧬 Embedding';
+            } else {
+                embBadge.className = 'badge badge-emb-off';
+                embBadge.innerHTML = '🔑 关键词';
+            }
+        } catch(e) {}
+    }
+
+    function toggleSettings() {
+        settingsPanel.classList.toggle('show');
+    }
+
+    async function setApiKey() {
+        const key = document.getElementById('apiKeyInput').value.trim();
+        if (!key) return;
+        try {
+            const res = await fetch('/api/apikey', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ api_key: key })
+            });
+            const data = await res.json();
+            document.getElementById('modeHint').textContent = data.message;
+            await updateStatus();
+        } catch(e) {
+            document.getElementById('modeHint').textContent = '设置失败';
+        }
+    }
+
+    async function switchMode(mode) {
+        try {
+            const res = await fetch('/api/mode', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ mode })
+            });
+            const data = await res.json();
+            document.getElementById('modeHint').textContent = `已切换到${data.mode === 'online' ? '在线' : '离线'}模式`;
+            await updateStatus();
+        } catch(e) {
+            document.getElementById('modeHint').textContent = e.message || '切换失败';
+        }
+    }
+
+    async function ask() {
+        const q = questionInput.value.trim();
+        if (!q) return;
+        questionInput.value = '';
+        chatArea.innerHTML += `<div class="msg user">❓ ${q}</div>`;
+
+        const lid = 'loading-' + Date.now();
+        chatArea.innerHTML += `<div class="msg agent" id="${lid}">🧠 思考中...</div>`;
+        chatArea.scrollTop = chatArea.scrollHeight;
+
+        try {
+            const res = await fetch('/api/ask', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ question: q })
+            });
+            const data = await res.json();
+
+            const seeds = data.seed_concepts?.join(', ') || '无';
+            const related = data.related_concepts?.map(r => {
+                const tag = r.cross_domain ? '🌐' : '📌';
+                return `${tag}${r.concept}(${r.score})`;
+            }).join(', ') || '无';
+
+            let topicHTML = '';
+            if (data.topic_suggestions?.length) {
+                const items = data.topic_suggestions.map(s => {
+                    const cls = s.cross_domain ? 'cross' : 'same';
+                    const icon = s.cross_domain ? '🌐' : '📌';
+                    const label = s.cross_domain ? '跨域' : '同域';
+                    return `<span class="topic-tag ${cls}" onclick="askTopic('${s.concept}')">${icon} ${s.concept} <span style="font-size:10px;opacity:0.6">${label}</span></span>`;
+                }).join('');
+                topicHTML = `<div class="topic-tags"><div class="label">💡 话题拓展（点击继续探索）</div>${items}</div>`;
+            }
+
+            const matchIcon = data.match_mode === 'embedding' ? '🧬' : '🔑';
+
+            document.getElementById(lid).innerHTML = `
+                🤖 ${data.answer}
+                <div class="meta">
+                    <span class="seeds">🔑 种子: ${seeds}</span>
+                    <span class="related">🔗 关联: ${related}</span>
+                    <span>${matchIcon} ${data.match_mode} | [${data.llm_mode}]</span>
+                </div>
+                ${topicHTML}
+            `;
+
+            if (data.seed_concepts?.length) {
+                highlightNodes(data.seed_concepts, data.related_concepts?.map(r => r.concept) || []);
+            }
+        } catch (e) {
+            document.getElementById(lid).textContent = '❌ 请求失败: ' + e.message;
+        }
+        chatArea.scrollTop = chatArea.scrollHeight;
+    }
+
+    function askTopic(concept) {
+        questionInput.value = `介绍一下${concept}，它和哪些概念有关联？`;
+        ask();
+    }
+
+    function drawGraph(hlSeeds=[], hlRelated=[]) {
+        const canvas = document.getElementById('graphCanvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = canvas.offsetWidth * 2;
+        canvas.height = canvas.offsetHeight * 2;
+        ctx.scale(2, 2);
+        const W = canvas.offsetWidth, H = canvas.offsetHeight;
+
+        const nodes = graphData.nodes.map(n => ({
+            ...n, x: W/2 + (Math.random()-0.5)*W*0.7, y: H/2 + (Math.random()-0.5)*H*0.7,
+            vx: 0, vy: 0
+        }));
+        const nodeMap = {};
+        nodes.forEach((n, i) => nodeMap[n.id] = i);
+
+        for (let iter = 0; iter < 100; iter++) {
+            for (let i = 0; i < nodes.length; i++) {
+                for (let j = i+1; j < nodes.length; j++) {
+                    let dx = nodes[i].x - nodes[j].x, dy = nodes[i].y - nodes[j].y;
+                    let d = Math.sqrt(dx*dx + dy*dy) || 1;
+                    let f = 3000 / (d * d);
+                    nodes[i].vx += dx/d*f; nodes[i].vy += dy/d*f;
+                    nodes[j].vx -= dx/d*f; nodes[j].vy -= dy/d*f;
+                }
+            }
+            graphData.edges.forEach(e => {
+                let i = nodeMap[e.source], j = nodeMap[e.target];
+                if (i === undefined || j === undefined) return;
+                let dx = nodes[j].x - nodes[i].x, dy = nodes[j].y - nodes[i].y;
+                let d = Math.sqrt(dx*dx + dy*dy) || 1;
+                let f = (d - 60) * 0.008;
+                nodes[i].vx += dx/d*f; nodes[i].vy += dy/d*f;
+                nodes[j].vx -= dx/d*f; nodes[j].vy -= dy/d*f;
+            });
+            nodes.forEach(n => { n.vx += (W/2-n.x)*0.0008; n.vy += (H/2-n.y)*0.0008; });
+            nodes.forEach(n => { n.x += n.vx*0.4; n.y += n.vy*0.4; n.vx *= 0.75; n.vy *= 0.75; });
+        }
+
+        ctx.clearRect(0, 0, W, H);
+
+        graphData.edges.forEach(e => {
+            let i = nodeMap[e.source], j = nodeMap[e.target];
+            if (i === undefined || j === undefined) return;
+            const isHL = hlSeeds.includes(e.source) || hlRelated.includes(e.target);
+            ctx.beginPath();
+            ctx.moveTo(nodes[i].x, nodes[i].y);
+            ctx.lineTo(nodes[j].x, nodes[j].y);
+            ctx.strokeStyle = isHL ? 'rgba(124,106,239,0.7)' : 'rgba(80,80,100,0.15)';
+            ctx.lineWidth = isHL ? 1.5 : 0.3;
+            ctx.stroke();
+        });
+
+        nodes.forEach(n => {
+            const isSeed = hlSeeds.includes(n.id);
+            const isRelated = hlRelated.includes(n.id);
+            const r = isSeed ? 13 : isRelated ? 10 : 5;
+            const color = domainColors[n.domain] || '#888';
+
+            ctx.beginPath();
+            ctx.arc(n.x, n.y, r, 0, Math.PI*2);
+            if (isSeed) {
+                ctx.fillStyle = '#fff';
+                ctx.fill();
+                ctx.strokeStyle = color;
+                ctx.lineWidth = 3;
+                ctx.stroke();
+            } else if (isRelated) {
+                ctx.fillStyle = color;
+                ctx.fill();
+                ctx.strokeStyle = '#fff';
+                ctx.lineWidth = 1.5;
+                ctx.stroke();
+            } else {
+                ctx.fillStyle = color + '66';
+                ctx.fill();
+            }
+
+            if (isSeed || isRelated) {
+                ctx.fillStyle = '#ddd';
+                ctx.font = 'bold 11px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText(n.id, n.x, n.y + r + 13);
+            }
+        });
+    }
+
+    function highlightNodes(seeds, related) {
+        drawGraph(seeds, related);
+    }
+
+    init();
+    </script>
+</body>
+</html>
