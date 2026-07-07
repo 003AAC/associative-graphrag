@@ -1,0 +1,19 @@
+# Docker专用依赖（在线模式，不含llama-cpp-python）
+# 离线模式需额外挂载模型，见docker-compose.yml注释
+
+# 核心依赖
+networkx>=3.0
+fastapi>=0.100.0
+uvicorn>=0.23.0
+pydantic>=2.0.0
+
+# 在线模式LLM
+openai>=1.0.0
+
+# torch CPU版（必须先于sentence-transformers安装，避免拉CUDA版）
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch>=2.0.0
+
+# Embedding语义匹配
+sentence-transformers>=2.2.0
+numpy>=1.24.0

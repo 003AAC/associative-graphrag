@@ -97,7 +97,7 @@ class KnowledgeGraph:
         """获取两个节点之间的最短路径（用于可视化）"""
         try:
             return nx.shortest_path(self.graph, start, end)
-        except nx.NetworkXNoPath:
+        except (nx.NetworkXNoPath, nx.NodeNotFound):
             return []
 
     def get_all_nodes(self) -> List[Dict]:

@@ -40,3 +40,6 @@ __pycache__/
 # 敏感信息
 config_local.py
 *.key
+
+# Docker
+.env

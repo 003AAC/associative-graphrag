@@ -1,0 +1,40 @@
+version: "3.8"
+
+services:
+  graphrag:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: associative-graphrag:latest
+    container_name: graphrag
+    ports:
+      - "8000:8000"
+    environment:
+      # LLM模式：auto(有key走在线) / offline / online
+      - RUN_MODE=auto
+      # DeepSeek API配置（在线模式必需）
+      - ONLINE_API_KEY=${DEEPSEEK_API_KEY:-}
+      - ONLINE_BASE_URL=https://api.deepseek.com
+      - ONLINE_MODEL=deepseek-chat
+      # Embedding配置
+      - EMBEDDING_MODE=auto
+      - EMBEDDING_MODEL=BAAI/bge-small-zh-v1.5
+      - EMBEDDING_DEVICE=cpu
+      # HuggingFace镜像
+      - HF_ENDPOINT=https://hf-mirror.com
+    volumes:
+      # 持久化Embedding模型缓存（避免每次重建都重新下载）
+      - hf_cache:/app/.cache/huggingface
+      # 离线模式：挂载本地GGUF模型（取消注释并修改路径）
+      # - F:/models/chatglm3-6b.Q4_K_M.gguf:/app/models/chatglm3.gguf:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/status')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  hf_cache:
+    driver: local

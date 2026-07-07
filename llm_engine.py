@@ -26,12 +26,33 @@ class LLMEngine:
         logger.info(f"🧠 LLM引擎初始化，运行模式: {self.mode}")
 
     def _determine_mode(self) -> str:
+        # 检查llama-cpp-python是否可用
+        self._offline_available = self._check_offline_available()
         if RUN_MODE == "offline":
+            if not self._offline_available:
+                logger.warning("⚠️ 离线模式不可用（llama-cpp-python未安装或模型路径为空），切换到在线模式")
+                return "online" if self._api_key else "offline"
             return "offline"
         elif RUN_MODE == "online":
             return "online"
         else:  # auto
-            return "online" if self._api_key else "offline"
+            if self._api_key:
+                return "online"
+            elif self._offline_available:
+                return "offline"
+            else:
+                logger.warning("⚠️ 无API Key且离线不可用，将尝试在线模式（需设置API Key）")
+                return "online"
+
+    def _check_offline_available(self) -> bool:
+        """检查离线模式是否可用"""
+        if not OFFLINE_MODEL_PATH:
+            return False
+        try:
+            import llama_cpp  # noqa: F401
+            return True
+        except ImportError:
+            return False
 
     def _get_offline(self):
         """懒加载本地模型"""
@@ -81,6 +102,8 @@ class LLMEngine:
 
     def _generate_online(self, prompt: str, max_tokens: int, temperature: float) -> str:
         """在线生成（DeepSeek/OpenAI兼容接口）"""
+        if not self._api_key:
+            raise RuntimeError("未配置API Key，无法调用在线LLM。请在config.py中设置ONLINE_API_KEY或通过Web界面输入。")
         client = self._get_online()
         response = client.chat.completions.create(
             model=ONLINE_MODEL,

@@ -57,6 +57,16 @@
         .topic-tag.cross { background: #2a1a3a; border: 1px solid #7c6aef; color: #b8a0ff; }
         .topic-tag.same { background: #1a2a3a; border: 1px solid #4a9aef; color: #8ac0ff; }
 
+        .evocative-card { margin-top: 12px; padding: 12px 16px; background: linear-gradient(135deg, #1a0a2a 0%, #0a1a2a 100%); border: 1px solid #7c6aef44; border-radius: 12px; cursor: pointer; transition: all 0.3s; }
+        .evocative-card:hover { border-color: #7c6aef; transform: translateY(-2px); box-shadow: 0 4px 20px rgba(124,106,239,0.15); }
+        .evocative-card .eq-icon { font-size: 18px; margin-right: 8px; }
+        .evocative-card .eq-text { font-size: 15px; color: #c8b0ff; font-weight: 500; }
+        .evocative-card .eq-hint { font-size: 11px; color: #666; margin-top: 6px; }
+        .evocative-card .eq-path { font-size: 11px; color: #555; margin-top: 4px; }
+        .evocative-detail { margin-top: 10px; padding: 12px 16px; background: #0a0a1a; border: 1px solid #2a2a4a; border-radius: 10px; line-height: 1.7; font-size: 14px; color: #c0c0d0; display: none; }
+        .evocative-detail.show { display: block; }
+        .evocative-detail .detail-path { font-size: 12px; color: #7c6aef; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid #1a1a2a; }
+
         .graph-canvas { flex: 1; position: relative; }
         canvas { width: 100%; height: 100%; }
         .graph-legend { position: absolute; bottom: 12px; left: 12px; display: flex; gap: 10px; flex-wrap: wrap; }
@@ -119,11 +129,15 @@
 
     const domainColors = {
         'AI': '#7c6aef', '安全': '#ef6a6a', '编程': '#4a9aef',
-        '跨域': '#4aef9a', '数据': '#efc94a', '系统': '#ef8a4a'
+        '跨域': '#4aef9a', '数据': '#efc94a', '系统': '#ef8a4a',
+        '物理': '#9a4aef', '数学': '#4aefef', '生物': '#6aef6a',
+        '化学': '#ef9a4a', '工程': '#9a9aef', '经济': '#efef4a'
     };
     const domainLabels = {
         'AI': 'AI/ML', '安全': '安全', '编程': '编程',
-        '跨域': '跨域理论', '数据': '数据工程', '系统': '系统'
+        '跨域': '跨域理论', '数据': '数据工程', '系统': '系统',
+        '物理': '物理', '数学': '数学', '生物': '生物',
+        '化学': '化学', '工程': '工程', '经济': '经济'
     };
 
     async function init() {
@@ -247,6 +261,35 @@
 
             const matchIcon = data.match_mode === 'embedding' ? '🧬' : '🔑';
 
+            // 发现的新关系
+            let discoverHTML = '';
+            if (data.discovered_relations?.length) {
+                const items = data.discovered_relations.map(d =>
+                    `<span style="color:#4aef9a">${d.src}</span> → <span style="color:#7c6aef">${d.dst}</span> <span style="color:#666">(${d.relation})</span>`
+                ).join('&nbsp;&nbsp;');
+                discoverHTML = `<div style="margin-top:6px;font-size:11px;padding:4px 8px;background:#0a1a0a;border:1px solid #1a3a1a;border-radius:6px">✨ 图谱扩展: ${items}</div>`;
+            }
+
+            // 启发式反问卡片
+            let evocativeHTML = '';
+            if (data.evocative) {
+                const ev = data.evocative;
+                const evId = 'evo-' + Date.now();
+                const pathStr = ev.bridge_path?.length > 1 ? ev.bridge_path.join(' → ') : '';
+                const evJsonEscaped = btoa(unescape(encodeURIComponent(JSON.stringify(ev))));
+                evocativeHTML = `
+                    <div class="evocative-card" id="${evId}-card" data-evocative="${evJsonEscaped}" data-question="${q.replace(/"/g, '&quot;')}" onclick="exploreEvocative('${evId}', this)">
+                        <div><span class="eq-icon">💡</span><span class="eq-text">${ev.evocative_question}</span></div>
+                        <div class="eq-hint">${ev.reasoning}</div>
+                        ${pathStr ? `<div class="eq-path">🔗 ${pathStr}</div>` : ''}
+                        <div class="eq-hint" style="margin-top:4px;color:#7c6aef">点击深入探索 →</div>
+                    </div>
+                    <div class="evocative-detail" id="${evId}-detail">
+                        <div style="color:#666;font-size:12px">🔄 正在展开关联...</div>
+                    </div>
+                `;
+            }
+
             document.getElementById(lid).innerHTML = `
                 🤖 ${data.answer}
                 <div class="meta">
@@ -255,10 +298,20 @@
                     <span>${matchIcon} ${data.match_mode} | [${data.llm_mode}]</span>
                 </div>
                 ${topicHTML}
+                ${discoverHTML}
+                ${evocativeHTML}
             `;
 
-            if (data.seed_concepts?.length) {
-                highlightNodes(data.seed_concepts, data.related_concepts?.map(r => r.concept) || []);
+            // 有新关系时刷新图谱数据
+            if (data.discovered_relations?.length) {
+                await loadGraph();
+            }
+
+            // 高亮种子 + 关联 + 发现的节点
+            if (data.seed_concepts?.length || data.discovered_relations?.length) {
+                const allSeeds = data.seed_concepts || [];
+                const discoveredNodes = data.discovered_relations?.flatMap(d => [d.src, d.dst]) || [];
+                highlightNodes(allSeeds, [...(data.related_concepts?.map(r => r.concept) || []), ...discoveredNodes]);
             }
         } catch (e) {
             document.getElementById(lid).textContent = '❌ 请求失败: ' + e.message;
@@ -269,6 +322,42 @@
     function askTopic(concept) {
         questionInput.value = `介绍一下${concept}，它和哪些概念有关联？`;
         ask();
+    }
+
+    async function exploreEvocative(evId, cardEl) {
+        const card = document.getElementById(evId + '-card');
+        const detail = document.getElementById(evId + '-detail');
+        if (!card || !detail) return;
+
+        // 从data属性解码evocative数据
+        const evJson = decodeURIComponent(escape(atob(cardEl.dataset.evocative)));
+        const ev = JSON.parse(evJson);
+        const originalQuestion = cardEl.dataset.question;
+
+        // 防止重复点击
+        card.style.pointerEvents = 'none';
+        card.style.opacity = '0.7';
+        detail.classList.add('show');
+        detail.innerHTML = '<div style="color:#7c6aef">🔄 正在深入探索关联...</div>';
+
+        try {
+            const res = await fetch('/api/evocative/explore', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ original_question: originalQuestion, evocative: ev })
+            });
+            const data = await res.json();
+            const pathStr = ev.bridge_path?.length > 1 ? ev.bridge_path.join(' → ') : '';
+            detail.innerHTML = `
+                <div class="detail-path">🔗 ${pathStr}</div>
+                <div>${data.explanation}</div>
+            `;
+            card.style.opacity = '0.5';
+        } catch(e) {
+            detail.innerHTML = '<div style="color:#ef6a6a">❌ 探索失败: ' + e.message + '</div>';
+            card.style.opacity = '1';
+            card.style.pointerEvents = 'auto';
+        }
     }
 
     function drawGraph(hlSeeds=[], hlRelated=[]) {

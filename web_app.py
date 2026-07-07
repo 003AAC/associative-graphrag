@@ -41,6 +41,11 @@ class ApiKeyRequest(BaseModel):
     api_key: str
 
 
+class EvocativeExploreRequest(BaseModel):
+    original_question: str
+    evocative: dict
+
+
 # ===== 页面路由 =====
 @app.get("/")
 async def index():
@@ -114,8 +119,30 @@ async def get_status():
         "has_api_key": llm.has_api_key,
         "match_mode": agent.matcher.mode,
         "embedding_available": agent.matcher.available,
-        "graph_stats": kg.stats()
+        "graph_stats": kg.stats(),
+        "discovered_total": agent.discoverer.total_discovered if agent.discoverer else 0
     }
+
+
+@app.get("/api/discoveries")
+async def get_discoveries(n: int = 20):
+    """获取最近发现的图谱关系"""
+    if not agent.discoverer:
+        return {"discoveries": [], "total": 0}
+    return {
+        "discoveries": agent.discoverer.get_recent(n),
+        "total": agent.discoverer.total_discovered
+    }
+
+
+@app.post("/api/evocative/explore")
+async def explore_evocative(req: EvocativeExploreRequest):
+    """用户点击启发式反问后，深入展开隐藏跨域关联"""
+    try:
+        explanation = agent.evocative.explore_evocative(req.original_question, req.evocative)
+        return {"explanation": explanation, "evocative": req.evocative}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":
